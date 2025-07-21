@@ -38,14 +38,26 @@ def parse_page():
     for card in org_cards:
         try:
             title = card.find_element(By.CSS_SELECTOR, ".panel-title").text
-            postal_code, city = parse_address(title.split()[-2] + " " + title.split()[-1])
+            print(f"[DEBUG] Processing organization: {title}")
+
+            title_parts = title.split()
+            if len(title_parts) < 2:
+                print("[!] Skipped organization: insufficient title parts")
+                continue
+
+            postal_code, city = parse_address(title_parts[-2] + " " + title_parts[-1])
+            company_name = " ".join(title_parts[:-2])
 
             tags = [tag.text for tag in card.find_elements(By.CSS_SELECTOR, ".badge.badge-pill.badge-primary")]
             tag_str = "; ".join(tags)
 
             details_link = card.find_element(By.CSS_SELECTOR, ".btn.btn-primary").get_attribute("href")
-            driver.get(details_link)
 
+            if not details_link or not isinstance(details_link, str) or not details_link.startswith("http"):
+                print(f"[!] Skipped card — invalid link: {details_link}")
+                continue
+
+            driver.get(details_link)
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".panel-body")))
 
             email = "-"
@@ -73,7 +85,7 @@ def parse_page():
                 pass
 
             data.append({
-                "A (Company Name)": " ".join(title.split()[:-2]),
+                "A (Company Name)": company_name,
                 "B (Company Domain)": website_domain,
                 "C (Email)": email,
                 "D (Email Domain)": email_domain,
@@ -87,20 +99,19 @@ def parse_page():
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".panel.panel-primary")))
 
         except Exception as e:
-            print(f"Ошибка: {str(e)}")
+            print(f"[ERROR] Error processing card: {str(e)}")
             continue
 
 def get_total_pages():
     driver.get("https://einrichtungsdatenbank.awo.org/organisations/public-search")
-    pagination_info = wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, "p.center-block.pull-right")))
+    pagination_info = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "p.center-block.pull-right")))
     return int(pagination_info.text.split()[-1])
 
 try:
     total_pages = get_total_pages()
 
     for current_page in range(1, total_pages + 1):
-        print(f"Парсинг страницы {current_page}/{total_pages}")
+        print(f"\n🚀 Parsing page {current_page}/{total_pages}")
 
         if current_page > 1:
             url = f"https://einrichtungsdatenbank.awo.org/organisations/public-search?Organisations%5Bpage%5D={current_page}"
@@ -110,14 +121,16 @@ try:
         parse_page()
 
 except Exception as e:
-    print(f"Ошибка: {str(e)}")
+    print(f"[CRITICAL] Parsing error: {str(e)}")
 
 finally:
     driver.quit()
     with open("awo_data.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["A (Company Name)", "B (Company Domain)", "C (Email)", "D (Email Domain)",
-                                               "E (Street Address)", "F (Postal Code)", "G (City)", "J (Tags)"])
+        writer = csv.DictWriter(f, fieldnames=[
+            "A (Company Name)", "B (Company Domain)", "C (Email)", "D (Email Domain)",
+            "E (Street Address)", "F (Postal Code)", "G (City)", "J (Tags)"
+        ])
         writer.writeheader()
         writer.writerows(data)
 
-print("Парсинг завершен. Данные сохранены в awo_data.xlsx")
+print("✅ Parsing complete. Data saved to awo_data.csv")
